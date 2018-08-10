@@ -1,21 +1,43 @@
 #define CONFIG_FILE "QR_CONFIG.ini"
-struct server_config{
-int CBR_NUMBER;
-int comm_number;
-int channel_number;
-int gSendToPort;
-char gSendToIP[];
-char QR_IP_HEAD[256];
-char PROXY[32];
-char gFromIP[32];
-char Store_ID[20];
-char MAC_ADDR[20];
-char HrtBt_SndURL[256];
-char HrtBt_URL[256];
-char QR_SCAN[256];
-}
-typedef server_config config_t;
-config_t ;
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+typedef unsigned long long u64;
+typedef struct TRefreshSendT{
+	char head;
+	short device_num;
+	char date[7];
+	char MacActive[256];
+	char XOR;
+	char end;
+}TRefreshSend;
+typedef struct TNoRefreshSendT {
+	char head;
+	short device_num;
+	char date[7];
+	char XOR;
+	char end;
+}TNoRefreshSend;
+enum interact_mode
+{
+	RECV = 1,
+	SEND = 2,
+};
+typedef struct RecMegStructType {
+	char *memory;
+	size_t size;
+}RecMsgStruct;
+typedef struct TxRxDataT {
+	char DevType;
+	short DevAdr;
+	short SorAdr;
+	char Cmd;
+	char AckType;
+	short Sequence;
+	char DataBlock[MAX_Buffer];
+	short Crc16;
+	int Block_len;
+}TxRxData;
 #ifdef DOOR_ALPHA
 #else
 #endif

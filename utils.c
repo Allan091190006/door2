@@ -1,3 +1,7 @@
+#include<stdio.h>
+#include<time.h>
+#include<sys/time.h>
+#include"cJSON.h"
 #define SUCCESS_JASON_CODE  "0000"
 #define HEARTBEAT_CMD_MAX  8
 #define HBCMD_SENDTIME_STR  "sendTime"
@@ -47,7 +51,7 @@ short GetCrc16(char *pData, int nLength)
 	return fcs;
 }
 
-bool CheckCRC16(char *pData, int nLength, short CrcValue)
+int CheckCRC16(char *pData, int nLength, short CrcValue)
 {
 	short fcs = 0;
 	for (int i = 0; i < nLength; i++){
@@ -59,7 +63,7 @@ bool CheckCRC16(char *pData, int nLength, short CrcValue)
 #endif
 	return fcs == CrcValue;
 }
-static void epoll_ADD(int epfd,int fd){
+void epoll_ADD(int epfd,int fd){
 	struct epoll_event ev;
 	ev.data.fd=fd;
 	ev.events=EPOLLIN|EPOLLET;
@@ -68,14 +72,14 @@ static void epoll_ADD(int epfd,int fd){
 		exit(-1);
 	}
 }
-static void epoll_DEL(int epfd,int fd){
+void epoll_DEL(int epfd,int fd){
 	struct epoll_event ev;
 	ev.data.fd=fd;
 	if(epoll_ctl(epfd,EPOLL_CTL_DEL,fd,&ev)==-1)
 	perror("epoll_DEL");
 
 }
-static void time_creator(int*fd ,long interval){
+void time_creator(int*fd ,long interval){
 	struct itimerspec time_new;
 	struct timespec now;
 	long long nosec;
@@ -94,7 +98,7 @@ static void time_creator(int*fd ,long interval){
 	time_new->it_interval.tv_nsec=us*1000;
 	timerfd_settime(*fd,TFD_TIMER_ABSTIME,&time_new,0);
 }
-static int add_timer(int epfd,int timerfd){
+int add_timer(int epfd,int timerfd){
 	int ret;
 	struct epoll_event ev;
 	ev.data.fd=timerfd;
@@ -103,7 +107,7 @@ static int add_timer(int epfd,int timerfd){
 		return -1;
 	return 0;
 }
-static int del_timer(int epfd,int timerfd){
+int del_timer(int epfd,int timerfd){
 	int ret;
 	struct epoll_event ev;
 	ev.data.fd=timerfd;
@@ -111,98 +115,20 @@ static int del_timer(int epfd,int timerfd){
 		return -1;
 	return 0;
 }
-static int response_jparse(char*json){
-
-	cJSON *code, *msg, *cmd, *key, *val, *reqId;
-	size_t keylen;
-	int num, i;
-	int retval = -1;
-	cJSON *root = cJSON_Parse(json);
-
-	printf("Json Response parse...\n");
-	if (root == NULL) 
-	{
-		printf("%s:Invalid json text\n",__func__);
-		return retval;
-	}
-
-	code = cJSON_GetObjectItem(root, "code");
-	if (code == NULL || strcmp(code->valuestring, SUCCESS_JASON_CODE) != 0) 
-	{
-		printf("%s:Invalid code in heartbeat json\n",__func__);
-		return retval;
-	}
-
-	msg = cJSON_GetObjectItem(root, "msg");
-	if (msg == NULL) 
-	{
-		printf("%s:Null msg\n",__func__);
-		return 0;
-	}
-
-	num = cJSON_GetArraySize(msg);
-	if (num > HEARTBEAT_CMD_MAX) 
-		num = HEARTBEAT_CMD_MAX;
-
-	for (i = 0; i < num; i++) 
-	{
-		printf("%s:msg {%d}", __func__,i);
-		cmd = cJSON_GetArrayItem(msg, i);
-		if (cmd == NULL){
-			printf("is empty array\n");
-			return 0;
-		}
-
-		key = cJSON_GetObjectItem(cmd, "command");
-		if (key == NULL)
-		{
-			printf("no command msg\n");
-			return 0;
-		}else{
-			if (strncmp(key->valuestring,"open",strlen("open")) == 0){
-				JX102R_Open_Channel(channel_number, true, gSendToIP, gSendToPort);
-				printf("is remote open\n");
-			}else if (strncmp(key->valuestring, "close", strlen("close")) == 0){
-				JX102R_Close_Channel(channel_number,  gSendToIP, gSendToPort);
-				printf("is remote close\n");
-			}else{
-				printf("error command %s\n",key->valuestring);
-			}
-		}
-	}
-	reqId = cJSON_GetObjectItem(cmd, "reqId");
-	if (reqId == NULL){
-		printf("%s:reqId  not found \n",__func__);
-		return 0;
-	}
-
-		if (key->valuestring != NULL){
-			if(strncmp(key->valuestring, HBCMD_SENDTIME_STR, keylen) == 0){
-				char *time_msg = serialize_json_sendtime(STORE_ID, mac_addr, reqId->valuestring);
-				printf("time_msg: {%s}\n", time_msg);
-				send_heartbeat_post_to_server(heartbeat_send_URL, time_msg, strlen(time_msg));
-			}
-		}else {
-			printf("NULL HBCMD_SENDTIME_STR \n");
-			return 0;
-		}
-	return retval;
-}
-static long get_systime(){
+long get_systime(void){
 	struct timeval tv;
 	long value=0;
 	memset(&tv,0,sizeof(tv));
 	gettimeofday(&tv,NULL);
-	value=tv.tv_sec*1000+tv.tv_usec;
+	value=tv.tv_sec*1000+tv.tv_usec/1000;
 	return value;
 }
-char* serialize_json_sendtime(const char *storeid, const char *sourceid, const char *reqid)
-{
+char* serialize_json_sendtime(const char *storeid, const char *sourceid, const char *reqid){
 	cJSON *root, *termtime;
 	char *json = NULL;
 	struct timeval tv;
 	static char tv_str[64];
-
+	long long time_stamp;
 	memset(tv_str, 0, 64);
 	root = cJSON_CreateObject();
 	termtime = cJSON_CreateObject();
@@ -213,26 +139,68 @@ char* serialize_json_sendtime(const char *storeid, const char *sourceid, const c
 	cJSON_AddStringToObject(root, "reqId", reqid);
 	cJSON_AddStringToObject(root, "terminalType", TERMINAL_TYPE);
 
-	LONG64 time_stamp = GetSystemTime();
-	FileLog::GetFileLog().rotate_logger()->info("time: {}", time_stamp);
+	time_stamp = get_systime();
+	printf("%s:time [%llu]\n",time_stamp);
 	snprintf(tv_str, 63, "%llu", time_stamp);
 	cJSON_AddStringToObject(termtime, sourceid, tv_str);
 	cJSON_AddItemToObject(root, "terminalTime", termtime);
 
 	json = cJSON_Print(root);
-	cJSON_Delete(root);
+	if(root)
+		cJSON_Delete(root);
 	return json;
 err:
-	if (root) 
-	{
+	if (root){
 		cJSON_Delete(root);
 	}
-
 	return NULL;
+}
+int WriteData(TxRxData*dData)
+{
+	int len;
+	int headLen = 9;
+	len = dData->Block_len;
+
+	dData->DevAdr = SWAP_WORD(dData->DevAdr);
+	dData->SorAdr = SWAP_WORD(dData->SorAdr);
+	dData->Sequence = SWAP_WORD(dData->Sequence);
+
+	dData->Crc16 = GetCrc16((char *)dData, len + 9);
+	memset(SendDataBuffer, 0, SEND_BUF_SIZE);
+	memcpy(SendDataBuffer, (char *)dData, sizeof(TxRxData));
+
+	SendDataBuffer[headLen + len] = dData->Crc16 >> 8;
+	SendDataBuffer[headLen + len + 1] = dData->Crc16 & 0xff;
+	len = len + 11;
+	return udp_send(len);
+}
+
+int ReadData(TxRxData*aData)
+{
+	int ret;
+	memset((void *)RecDataBuffer, 0, sizeof(RecDataBuffer));
+	memset(gFromIP, 0, sizeof(gFromIP));
+	ret = udp_recv(2000, gFromIP, gFromPort);
+	if (ret < 0){
+		printf("%s:udp_recv fail ",__func__);
+		return -4;
+	}
+	memset(aData, 0, sizeof(TxRxData));
+	memcpy(aData, RecDataBuffer, ret);
+	//receive data block length
+	int i = ret - 9;
+	aData->Crc16 = ((aData->DataBlock[i - 2] & 0xff) << 8) | (aData->DataBlock[i - 1] & 0xff);
+	aData->DataBlock[i - 2] = '\0';
+	if (!CheckCRC16((char *)aData, i - 2 + 9, aData->Crc16))
+	{
+		printf("%s:receive data, check CRC fail ",__func__);
+		return -3;
+	}
+	return 0;
 }
 char * serialize_json_QR(const char * token,const char*gateid){
 	cJSON*root=NULL;
-	char*val=NULL;
+	char*json=NULL;
 	long long time_stamp=0;
 	static char tv_str[64];
 	memset(tv_str,0,64);
@@ -250,28 +218,31 @@ char * serialize_json_QR(const char * token,const char*gateid){
 		cJSON_Delete(root);
 	return json;
 }
-void chk_and_open_door(std::string str_QR_URL, std::string str_QRmsg, int msgLen)
+/*
+@clock ? process time ,what if this prog was schedule out?
+*/
+void chk_and_open_door(void*arg)
 {
 	clock_t start = 0;
-	clock_t ends = 0;
+	clock_t end = 0;
+	CURL *curl_qr;
+	CURLcode res;
+	/*
+	char*str_QRmsg=malloc(strlen((char*)arg));
+	char*str_QR_URL=(char*)malloc(sizeof(QR_IP_HEAD));
+	*/
+	int ret = -1;
+	struct curl_slist *headers = NULL;
+	int msgLen=sizeof(strlen(char*)arg);
+	const char *QR_URL = QR_IP_HEAD;
+	const char *QRmsg =(char*)arg;
 	start = clock();
-
-	const char *QR_URL = str_QR_URL.c_str();
-	const char *QRmsg = str_QRmsg.c_str();
-
-	if (NULL == QRmsg)
-	{
-		FileLog::GetFileLog().rotate_logger()->info("QRmsg should not be null, send qr_door msg fail !");
+	if (NULL == QRmsg){
+		printf("%s:QRmsg should not be null, send qr_door msg fail !",__func__);
 		return;
 	}
-
-	CURLcode res;
-	bool ret = false;
-
-	CURL *curl_qr;
 	curl_qr = curl_easy_init();
-	if (curl_qr) 
-	{
+	if (curl_qr){
 	
 		/* send all data to this function  */
 		curl_easy_setopt(curl_qr, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
@@ -285,63 +256,50 @@ void chk_and_open_door(std::string str_QR_URL, std::string str_QRmsg, int msgLen
 	}
 	else
 	{
-		FileLog::GetFileLog().rotate_logger()->info("curl_qr init fail! send qr_door msg fail !");
+		printf("%s:curl_qr init fail! send qr_door msg fail !",__func__);
 		return;
 	}
 
 	curl_easy_setopt(curl_qr, CURLOPT_POSTFIELDS, QRmsg);
 	curl_easy_setopt(curl_qr, CURLOPT_URL, QR_URL);
 	curl_easy_setopt(curl_qr, CURLOPT_PROXY, PROXY);
-	/* if we don't provide POSTFIELDSIZE, libcurl will strlen() by
-	itself */
+	/* if we don't provide POSTFIELDSIZE, libcurl will strlen() by itself */
 	curl_easy_setopt(curl_qr, CURLOPT_POSTFIELDSIZE, msgLen);
-	struct curl_slist *headers = NULL;
 	headers = curl_slist_append(headers, "content-type: application/json");
 	curl_easy_setopt(curl_qr, CURLOPT_HTTPHEADER, headers);
-
 	/* Perform the request, res will get the return code */
 	res = curl_easy_perform(curl_qr);
 
-	if (curl_qr)
-	{
+	if (curl_qr){
 		curl_easy_cleanup(curl_qr);
 		curl_qr = NULL;
 	}
-	if (res != CURLE_OK)
-	{
-		FileLog::GetFileLog().rotate_logger()->info("send qr_door msg fail !");
-	}
-	else
-	{
-		FileLog::GetFileLog().rotate_logger()->info("send qr_door msg success !");
-		if (strncmp(chunk_qr.memory, "A1A2A3A41", strlen("A1A2A3A41")) == 0)
-			ret = true;
+	if (res != CURLE_OK){
+		printf("%s:send qr_door msg fail !"__func__);
+	}else{
+		printf("%s:send qr_door msg success !",__func__);
+		if (strncmp(chunk_qr.memory, "A1A2A3A4", strlen("A1A2A3A4")) == 0)
+			ret = 1;
 		else
-			ret = false;
+			ret = 0;
 	}
-
-	ends = clock();
-	if (ends - start > 1500)
+	end = clock();
+	if (end - start > 1500)
 	{
-		FileLog::GetFileLog().rotate_logger()->info("send post QR_code to server take {} ms ", ends - start);
-		FileLog::GetFileLog().rotate_logger()->info("send qr_door msg fail !");
+		printf("%s:send post QR_code to server take %ld ms ",__func__, ends - start);
+		printf("%s:send qr_door msg fail !",__func__);
 		return;
-		
 	}
-
-	if (ret)
-	{
-		FileLog::GetFileLog().rotate_logger()->info("send post QR_code to server take {} ms ", ends - start);
+	if (ret){
+		printf("%s:send post QR_code to server take %ld ms ",__func__, ends - start);
 #ifdef DOOR_ALPHA 
-		JX102R_Open_Channel(channel_number, false, gSendToIP, gSendToPort);
+		JX102R_Open_Channel(channel_number, 0, gSendToIP, gSendToPort);
 #else
 		open_door();
 #endif
 		printf("%s:door opened !\n",__func__);
-		PlaySound(_T("C:\\QR_CODE\\欢迎来到京东无人超市.wav"),NULL, SND_FILENAME | SND_SYNC);//单次播放
-	}
-	else
-	{
-		FileLog::GetFileLog().rotate_logger()->info("qr_code inconsistent!");
+		play_sound("C:\\QR_CODE\\欢迎来到京东无人超市.wav");//单次播放
+	}else{
+		printf("%s:qr_code inconsistent!",__func__);
 	}
 }

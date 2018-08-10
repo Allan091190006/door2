@@ -4,23 +4,23 @@
 #include <termios.h>
 #include "dev.h"
 
-typedef struct
+void lock(dev_handle*dev){
+	pthread_mutex_lock(&dev->mutex);
+}
+void unlock(dev_handle*dev){
+	pthread_mutex_unlock(&dev->mutex);
+}
+dev_handle* dev_uart_open(char *com_name, data_callback_func cb)    //we need a private struct pointer
 {
-    DEV_HANDLE handle;
-    int fd;
-}DEV_UART_S;
-
-static int uart_read(struct dev_handle *handle, U8 *data, int len);
-static int uart_write(struct dev_handle *handle, U8 *data, int len);
-static LY_STATUS uart_close(struct dev_handle *handle);
-AUTO_LOCK_DECLEAR();
-
-DEV_HANDLE* dev_uart_open(char *com_name, data_callback_func cb)    //we need a private struct pointer
-{
-    DEV_UART_S *dev;
-	struct termios oldios,newios;
-    dev = (DEV_UART_S*)malloc(sizeof (DEV_UART_S));
-    if(dev == NULL) return NULL;
+	dev_handle*dev;
+	struct termios newios,oldios;
+    	dev = (DEV_HANDLE*)malloc(sizeof (DEV_HANDLE));
+	memset(dev,0,sizeof(DEV_HANDLE));
+    	if(dev == NULL) return NULL;
+	if(pthread_mutex_init(&dev->mutex,NULL)<0){
+		perror("uart mutex init");
+		exit(-1);
+	}
     //TODO: open uart device.
 #ifdef
 
@@ -36,13 +36,13 @@ DEV_HANDLE* dev_uart_open(char *com_name, data_callback_func cb)    //we need a 
 	memset(&newios,0,sizeof(newios));
 	tcgetattr(fd,&oldios);
 	newios.c_cflag=B115200|CS8|CLOCAL|CREAD;    //consider 9600.8 bit data,ignore modem,enbale read
-    newios.c_iflag=IGNPAR; 						//ignore parity
+	newios.c_iflag=IGNPAR; 						//ignore parity
 	newios.c_oflag=0; 							//output mode,no need?
 	newios.c_lflag=0; 							//no block
-	newios.c_cflag&=~CSTOPB; 					//1 stop bit
-/*
+	newios.c_cflag&=~CSTOPB; 					// stop bits =1
 	//newios.c_cc[VTIME]=0;  						//no timeout
 	//newios.c_cc[VMIN]=1; 						//return once reading 1 chara
+/*
 	pNewtio->c_cc[VINTR] = 0;
 	pNewtio->c_cc[VQUIT] = 0;
 	pNewtio->c_cc[VERASE] = 0;
@@ -63,32 +63,35 @@ DEV_HANDLE* dev_uart_open(char *com_name, data_callback_func cb)    //we need a 
 */
 	tcflush(fd,TCIFLUSH); 						//reset
 	tcsetattr(fd,TCSANNOW,&newios); 			//enable attr
-	return &dev->handle;
+	dev->read=uart_read;
+	dev->write=uart_write;
+	dev->close=uart_close;
+	return dev;
 }
 
 static int uart_read(struct dev_handle *handle, U8 *data, int len)
 {
     
 	lock();
-	read(,data,len);
-    unlock();
+	read(handle->fd,data,len);
+	unlock();
     return 0;
 }
 
 static int uart_write(struct dev_handle *handle, U8 *data, int len)
 {
-    lock();
-	write(,data,len);
-    unlock();
+	lock();
+	write(handle->write,data,len);
+	unlock();
     return 0;
 }
 
 static int uart_close(struct dev_handle *handle)
 {
-    lock();
-	close();
-    unlock();
-    return 0;
+	lock();
+	close(handle->fd);
+	unlock();
+    	return 0;
 }
 
 

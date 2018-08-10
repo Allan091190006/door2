@@ -26,28 +26,8 @@
 #define HARTBT_SND_URL_STR 	"heartbeat_send_URL"
 #define REC_BUF_SIZE 		2048
 #define SEND_BUF_SIZE 		2048
-#define MAX_BUF 			1032
 
-typedef struct TRefreshSendT{
-	char head;
-	short device_num;
-	char date[7];
-	char MacActive[256];
-	char XOR;
-	char end;
-}TRefreshSend;
-typedef struct TNoRefreshSendT {
-	char head;
-	short device_num;
-	char date[7];
-	char XOR;
-	char end;
-}TNoRefreshSend;
-enum interact_mode
-{
-	RECV = 1,
-	SEND = 2,
-};
+
 int CBR_NUMBER;
 int channel_number;
 int comm_number;
@@ -126,7 +106,7 @@ int response_jparse(char*json){
 
 	if((msg = cJSON_GetObjectItem(root, "msg"))==NULL)	{
 		printf("%s:Null msg\n",__func__);
-		return 0;
+		return retval;
 	}
 
 	num=cJSON_GetArraySize(msg);
@@ -138,12 +118,12 @@ int response_jparse(char*json){
 		printf("%s:%d", __func__,i,);
 		if((cmd = cJSON_GetArrayItem(msg, i))==NULL){
 			printf("%s:msg[%d] is empty",__func__,i);
-			return 0;
+			return retval;
 		}
 
 		if((key=cJSON_GetObjectItem(cmd, "command"))== NULL){
  		 	printf("%s:no cmd in msg[%d]\n"__func__,i);
-			return 0;
+			return retval;
 		}else{
 			if(strncmp(key->valuestring,"open",strlen("open"))==0){
 				JX102R_Open_Channel(channel_number, 1, gSendToIP, gSendToPort);
@@ -153,24 +133,18 @@ int response_jparse(char*json){
 				printf("%s:remote close\n",__func__);
 			}else if(strlen(HBCMD_SENDTIME_STR) == strlen(key->valuestring)
 			&& strncmp(key->valuestring, HBCMD_SENDTIME_STR, keylen)==0){
-
-
+				char *time_msg = serialize_json_sendtime(STORE_ID,MAC_ADDR, reqId->valuestring);
+				printf("%s:time_msg:%s",__func__, time_msg);
+				send_heartbeat_post_to_server(heartbeat_send_URL, time_msg, strlen(time_msg));
+			}else if(key->valuestring==NULL){
+				printf("%s:NULL HBCMD_SENDTIME_STR\n",__func__);
 			}else{
 				printf("%s:error cmd :%s\n",__func__,key->valuestring);
 			}
 		}
-	if((reqId=cJSON_GetObjectItem(cmd, "reqId"))==NULL){
+		if((reqId=cJSON_GetObjectItem(cmd, "reqId"))==NULL){
 			printf("%s:no reqId found\n",__func__);
-			return 0;
-	}
-				char *time_msg = serialize_json_sendtime(STORE_ID, mac_addr, reqId->valuestring);
-				FileLog::GetFileLog().rotate_logger()->info("time_msg: {}", time_msg);
-				send_heartbeat_post_to_server(heartbeat_send_URL, time_msg, strlen(time_msg));
-			}
-		}
-		else {
-			FileLog::GetFileLog().rotate_logger()->error("NULL HBCMD_SENDTIME_STR \n");
-			return 0;
+			return retval;
 		}
 	}
 	return retval;
@@ -181,6 +155,7 @@ void SendHeartbeat(char*heartbeat_URL){
 	if(response!=NULL)
 		response_jparse(response);
 }
+/*
 void task_process(){
 	clock_t start,end;
 	int m_read,m_write,qr_scan_len;
@@ -194,7 +169,7 @@ void task_process(){
 	epoll_ADD(epoll_fd,targetfd);
 	strncpy(heartbeat_URL+strlen(heartbeat_URL),MAC_ADDR,strlen(MAC_ADDR));
 	while(1){
-		if((nfds=epoll_wait(epoll_fd,events,MAXFD,-1))<0){
+		if((nfds=epoll_wait(epoll_fd,events,EPOLL_MAXFD,-1))<0){
 			if(errno!=EINTR)
 			perror("epoll_wait");
 		}else if(nfds>0){
@@ -244,6 +219,7 @@ void task_process(){
 		}
 
 }
+*/
 static int init_server_configure(void){
 	cJSON*root=NULL,*tmp=NULL;
 	int conf_fd,ret=-1;
@@ -487,6 +463,6 @@ int main(int argc, const char *argv[])
 #else
 	pthread_create(&tcp_pthread,NULL,tcp_process,NULL);
 #endif
-	task_process();
+	//task_process();
 	return 0;
 }
